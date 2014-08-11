@@ -701,6 +701,10 @@ var Twig = (function (Twig) {
         }
         params.id = id;
 
+        if (Twig.functions.remoteTemplateLocationResolver) {
+          location = Twig._function('remoteTemplateLocationResolver', location);
+        }
+
         // Check for existing template
         if (Twig.cache && Twig.Templates.registry.hasOwnProperty(id)) {
             // A template is already saved with the given id.
@@ -732,6 +736,10 @@ var Twig = (function (Twig) {
 
                         params.url = location;
                         params.data = data;
+
+                        if (Twig.functions.remoteTemplateIdResolver) {
+                          params.id = Twig._function('remoteTemplateIdResolver', params.id);
+                        }
 
                         template = new Twig.Template(params);
 
