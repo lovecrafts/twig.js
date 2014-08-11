@@ -81,6 +81,26 @@ describe("Twig.js Browser Loading ->", function() {
             }
         });
     });
+
+  it("should call function extension 'remoteTemplateLocationResolver' if defined", function(done) {
+    var wasCalled = false,
+        remoteTemplateLocationResolver = function(templateLocation) {
+          wasCalled = true
+          return templateLocation;
+    };
+
+    Twig.extendFunction('remoteTemplateLocationResolver', remoteTemplateLocationResolver);
+
+    twig({
+      href: 'templates/child.twig',
+
+      load: function(template) {
+        template.render({ base: "template.twig" }).should.equal( "Other Title - child" );
+        wasCalled.should.equal(true);
+        done();
+      }
+    });
+  });
 });
 
 
