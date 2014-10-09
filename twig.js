@@ -989,7 +989,14 @@ var Twig = (function (Twig) {
     };
 
     Twig.Template.prototype.importMacros = function(file) {
-        var url = relativePath(this, file);
+        var url;
+
+        try {
+            url = relativePath(this, file);
+        } catch(e) {
+            url = file;
+            this.url = true
+        }
 
         // load remote template
         var remoteTemplate = Twig.Templates.loadRemote(url, {
