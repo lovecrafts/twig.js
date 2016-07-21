@@ -52,6 +52,88 @@ describe("Twig.js Core ->", function() {
         twig({data: "{{ ' \"}} ' }}"}).render().should.equal(' "}} ');
     });
 
+    it("should be able to parse whitespace control output tags", function() {
+        twig({data: ' {{- "test" -}}'}).render().should.equal("test");
+        twig({data: ' {{- "test" -}} '}).render().should.equal("test");
+        twig({data: '\n{{- "test" -}}'}).render().should.equal("test");
+        twig({data: '{{- "test" -}}\n'}).render().should.equal("test");
+        twig({data: '\n{{- "test" -}}\n'}).render().should.equal("test");
+        twig({data: '\t{{- "test" -}}\t'}).render().should.equal("test");
+        twig({data: '\n\t{{- "test" -}}\n\t'}).render().should.equal("test");
+        twig({data: '123\n\t{{- "test" -}}\n\t456'}).render().should.equal("123test456");
+        twig({data: '\n{{- orp -}}\n'}).render({ orp: "test"}).should.equal("test");
+        twig({data: '\n{{- [1,2 ,1+2 ] -}}\n'}).render().should.equal("1,2,3");
+        twig({data: ' {{- "test" -}} {{- "test" -}}'}).render().should.equal("testtest");
+        twig({data: '{{ "test" }} {{- "test" -}}'}).render().should.equal("testtest");
+        twig({data: '{{- "test" -}} {{ "test" }}'}).render().should.equal("testtest");
+        twig({data: '<>{{- "test" -}}<>'}).render().should.equal("<>test<>");
+    });
+
+    it("should be able to parse mismatched opening whitespace control output tags", function() {
+        twig({data: ' {{- "test" }}'}).render().should.equal("test");
+        twig({data: '{{- "test" }}\n'}).render().should.equal("test\n");
+        twig({data: '\t{{- "test" }}\t'}).render().should.equal("test\t");
+        twig({data: '123\n\t{{- "test" }}\n\t456'}).render().should.equal("123test\n\t456");
+        twig({data: '\n{{- [1,2 ,1+2 ] }}\n'}).render().should.equal("1,2,3\n");
+        twig({data: ' {{- "test" }} {{- "test" }}'}).render().should.equal("testtest");
+        twig({data: '{{ "test" }} {{- "test" }}'}).render().should.equal("testtest");
+        twig({data: ' {{- "test" }} {{ "test" }}'}).render().should.equal("test test");
+        twig({data: ' {{- "test" }} {{- "test" -}}'}).render().should.equal("testtest");
+        twig({data: '<>{{- "test" }}'}).render().should.equal("<>test");
+    });
+
+    it("should be able to parse mismatched closing whitespace control output tags", function() {
+        twig({data: ' {{ "test" -}}'}).render().should.equal(" test");
+        twig({data: '\n{{ "test" -}}\n'}).render().should.equal("\ntest");
+        twig({data: '\t{{ "test" -}}\t'}).render().should.equal("\ttest");
+        twig({data: '123\n\t{{ "test" -}}\n\t456'}).render().should.equal("123\n\ttest456");
+        twig({data: '\n{{ [1,2 ,1+2 ] -}}\n'}).render().should.equal("\n1,2,3");
+        twig({data: ' {{ "test" -}} {{ "test" -}}'}).render().should.equal(" testtest");
+        twig({data: '{{ "test" }} {{ "test" -}} '}).render().should.equal("test test");
+        twig({data: ' {{ "test" -}} {{ "test" }} '}).render().should.equal(" testtest ");
+        twig({data: ' {{ "test" -}} {{- "test" -}}'}).render().should.equal(" testtest");
+        twig({data: '{{ "test" -}}<>'}).render().should.equal("test<>");
+    });
+
+    it("should be able to parse whitespace control logic tags", function() {
+        // Newlines directly after logic tokens are ignored
+        // So use double newlines
+        twig({data: '{%- if true -%}{{ "test" }}{% endif %}'}).render().should.equal("test");
+        twig({data: '{%- if true -%}{{ "test" }}{%- endif -%}'}).render().should.equal("test");
+        twig({data: ' {%- if true -%} {{ "test" }}{% endif %}'}).render().should.equal("test");
+        twig({data: '\n{%- if true -%}\n\n{{ "test" }}{% endif %}'}).render().should.equal("test");
+        twig({data: '\n\t{%- if true -%}\n\n\t{{ "test" }}{% endif %}'}).render().should.equal("test");
+        twig({data: '123\n\t{%- if true -%}\n\n\t{{ "test" }}{% endif %}456'}).render().should.equal("123test456");
+        twig({data: '\n\t{%- if true -%}\n\n\t{{ [1,2 ,1+2 ] }}{% endif %}'}).render().should.equal("1,2,3");
+        twig({data: '<>{%- if true -%}test{% endif %}<>'}).render().should.equal("<>test<>");
+    });
+
+    it("should be able to parse mismatched opening whitespace control logic tags", function() {
+        twig({data: '{%- if true %}{{ "test" }}{% endif %}'}).render().should.equal("test");
+        twig({data: '{%- if true %}{{ "test" }}{% endif %}'}).render().should.equal("test");
+        twig({data: ' {% if true %} {{ "test" }}{% endif %}'}).render().should.equal("  test");
+        twig({data: ' {%- if true %} {{ "test" }}{% endif %}'}).render().should.equal(" test");
+        twig({data: '\n{% if true %}\n\n{{ "test" }}{% endif %}'}).render().should.equal("\n\ntest");
+        twig({data: '\n{%- if true %}\n\n{{ "test" }}{% endif %}'}).render().should.equal("\ntest");
+        twig({data: '\n\t{%- if true %}\n\n\t{{ "test" }}{% endif %}'}).render().should.equal("\n\ttest");
+        twig({data: '123\n\t{%- if true %}\n\n\t{{ "test" }}{% endif %}456'}).render().should.equal("123\n\ttest456");
+        twig({data: '\n\t{%- if true %}\n\n\t{{ [1,2 ,1+2 ] }}{% endif %}'}).render().should.equal("\n\t1,2,3");
+        twig({data: '<>{%- if true %}test{% endif %}'}).render().should.equal("<>test");
+    });
+
+    it("should be able to parse mismatched closing whitespace control logic tags", function() {
+        twig({data: '{% if true %}{{ "test" }}{% endif %}'}).render().should.equal("test");
+        twig({data: '{% if true -%} {{ "test" }}{% endif %}'}).render().should.equal("test");
+        twig({data: ' {% if true -%} {{ "test" }}{% endif %}'}).render().should.equal(" test");
+        twig({data: ' {% if true -%} {{ "test" }}{% endif %}'}).render().should.equal(" test");
+        twig({data: '\n{% if true %}\n\n{{ "test" }}{% endif %}'}).render().should.equal("\n\ntest");
+        twig({data: '\n{% if true -%}\n\n{{ "test" }}{% endif %}'}).render().should.equal("\ntest");
+        twig({data: '\n\t{% if true -%}\n\n\t{{ "test" }}{% endif %}'}).render().should.equal("\n\ttest");
+        twig({data: '123\n\t{% if true -%}\n\n\t{{ "test" }}{% endif %}456'}).render().should.equal("123\n\ttest456");
+        twig({data: '\n\t{% if true -%}\n\n\t{{ [1,2 ,1+2 ] }}{% endif %}'}).render().should.equal("\n\t1,2,3");
+        twig({data: '{% if true -%}<>test{% endif %}'}).render().should.equal("<>test");
+    });
+
     it("should be able to output numbers", function() {
         twig({data: '{{ 12 }}'}).render().should.equal( "12" );
         twig({data: '{{ 12.64 }}'}).render().should.equal( "12.64" );
@@ -70,6 +152,9 @@ describe("Twig.js Core ->", function() {
         twig({data: "{{ 'sin\"gle' }}"}).render().should.equal('sin"gle');
         twig({data: '{{ "dou\\"ble" }}'}).render().should.equal("dou\"ble");
         twig({data: "{{ 'sin\\'gle' }}"}).render().should.equal("sin'gle");
+    });
+    it("should be able to output strings with newlines", function() {
+        twig({data: "{{ 'a\nb\rc\r\nd' }}"}).render().should.equal("a\nb\rc\r\nd");
     });
     it("should be able to output arrays", function() {
          twig({data: '{{ [1] }}'}).render().should.equal("1" );
@@ -105,8 +190,16 @@ describe("Twig.js Core ->", function() {
         twig({data: '{% set at = {"foo": "test", bar: "other", 1:"zip"} %}{{ at.foo ~ at.bar ~ at.1 }}'}).render().should.equal( "testotherzip" );
     });
 
+    it("should allow newlines in object literals", function() {
+        twig({data: '{% set at = {\n"foo": "test",\rbar: "other",\r\n1:"zip"\n} %}{{ at.foo ~ at.bar ~ at.1 }}'}).render().should.equal( "testotherzip" );
+    });
+
     it("should recognize null in an object", function() {
         twig({data: '{% set at = {"foo": null} %}{{ at.foo == val }}'}).render({val: null}).should.equal( "true" );
+    });
+
+    it("should allow int 0 as a key in an object", function() {
+        twig({data: '{% set at = {0: "value"} %}{{ at.0 }}'}).render().should.equal( "value" );
     });
 
     it("should support set capture", function() {
@@ -118,6 +211,14 @@ describe("Twig.js Core ->", function() {
         	data: "before {% raw %}{{ test }} {% test2 %} {{{% endraw %} after"
         }).render().should.equal(
         	"before {{ test }} {% test2 %} {{ after"
+        );
+    });
+
+    it("should support raw data using 'verbatim' tag", function() {
+        twig({
+            data: "before {% verbatim %}{{ test }} {% test2 %} {{{% endverbatim %} after"
+        }).render().should.equal(
+            "before {{ test }} {% test2 %} {{ after"
         );
     });
 
@@ -258,6 +359,51 @@ describe("Twig.js Core ->", function() {
         it("should not allow to override context using {% set %}", function() {
             twig({data: '{% set _context = "test" %}{{ _context|json_encode }}'}).render().should.equal('{"_context":"test"}');
             twig({data: '{% set _context = "test" %}{{ _context._context }}'}).render().should.equal("test");
+        });
+
+        it("should support autoescape option", function() {
+            twig({
+                autoescape: true,
+                data: '{{ value }}'
+            }).render({
+                value: "<test>&</test>"
+            }).should.equal('&lt;test&gt;&amp;&lt;/test&gt;');
+        });
+
+        it("should support autoescape option with alternative strategy", function() {
+            twig({
+                autoescape: 'js',
+                data: '{{ value }}'
+            }).render({
+                value: "<test>&</test>"
+            }).should.equal('\\x3Ctest\\x3E\\x26\\x3C\\x2Ftest\\x3E');
+        });
+
+        it("should autoescape parent() output correctly", function() {
+            twig({id: 'parent1', data: '{% block body %}<p>{{ value }}</p>{% endblock body %}'});
+            twig({
+                allowInlineIncludes: true,
+                autoescape: true,
+                data: '{% extends "parent1" %}{% block body %}{{ parent() }}{% endblock %}'
+            }).render({
+                value: "<test>&</test>"
+            }).should.equal('<p>&lt;test&gt;&amp;&lt;/test&gt;</p>');
+        });
+
+        it("should use a correct context in the extended template", function() {
+            twig({id: 'parent', data: '{% block body %}{{ value }}{% endblock body %}'});
+            twig({
+                allowInlineIncludes: true,
+                data: '{% extends "parent" %}{% set value = "test" %}{% block body %}{{ parent() }}{% endblock %}'
+            }).render().should.equal("test");
+        });
+
+        it("should use a correct context in the included template", function() {
+            twig({id: 'included', data: '{{ value }}\n{% set value = "inc" %}{{ value }}\n'});
+            twig({
+                allowInlineIncludes: true,
+                data: '{% set value = "test" %}{% for i in [0, 1] %}{% include "included" %}{% endfor %}{{ value }}'
+            }).render().should.equal("test\ninc\ntest\ninc\ntest");
         });
     });
 });

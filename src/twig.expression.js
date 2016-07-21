@@ -1,12 +1,7 @@
-//     Twig.js
-//     Copyright (c) 2011-2013 John Roepke
-//     Available under the BSD 2-Clause License
-//     https://github.com/justjohn/twig.js
-
 // ## twig.expression.js
 //
 // This file handles tokenizing, compiling and parsing expressions.
-var Twig = (function (Twig) {
+module.exports = function (Twig) {
     "use strict";
 
     /**
@@ -14,11 +9,13 @@ var Twig = (function (Twig) {
      */
     Twig.expression = { };
 
+    require('./twig.expression.operator')(Twig);
+
     /**
      * Reserved word that can't be used as variable names.
      */
     Twig.expression.reservedWords = [
-        "true", "false", "null", "_context"
+        "true", "false", "null", "TRUE", "FALSE", "NULL", "_context", "and", "or", "in", "not in", "if"
     ];
 
     /**
@@ -32,6 +29,7 @@ var Twig = (function (Twig) {
         },
         string:     'Twig.expression.type.string',
         bool:       'Twig.expression.type.bool',
+        slice:      'Twig.expression.type.slice',
         array: {
             start:  'Twig.expression.type.array.start',
             end:    'Twig.expression.type.array.end'
@@ -43,6 +41,10 @@ var Twig = (function (Twig) {
         parameter: {
             start:  'Twig.expression.type.parameter.start',
             end:    'Twig.expression.type.parameter.end'
+        },
+        subexpression: {
+            start:  'Twig.expression.type.subexpression.start',
+            end:    'Twig.expression.type.subexpression.end'
         },
         key: {
             period:   'Twig.expression.type.key.period',
@@ -66,6 +68,7 @@ var Twig = (function (Twig) {
             Twig.expression.type.array.end,
             Twig.expression.type.object.end,
             Twig.expression.type.parameter.end,
+            Twig.expression.type.subexpression.end,
             Twig.expression.type.comma,
             Twig.expression.type.test
         ],
@@ -79,14 +82,16 @@ var Twig = (function (Twig) {
             Twig.expression.type.context,
             Twig.expression.type.parameter.start,
             Twig.expression.type.array.start,
-            Twig.expression.type.object.start
+            Twig.expression.type.object.start,
+            Twig.expression.type.subexpression.start
         ]
     };
 
     // Most expressions allow a '.' or '[' after them, so we provide a convenience set
     Twig.expression.set.operations_extended = Twig.expression.set.operations.concat([
                     Twig.expression.type.key.period,
-                    Twig.expression.type.key.brackets]);
+                    Twig.expression.type.key.brackets,
+                    Twig.expression.type.slice]);
 
     // Some commonly used compile and parse functions.
     Twig.expression.fn = {
@@ -176,10 +181,39 @@ var Twig = (function (Twig) {
             }
         },
         {
+            /**
+             * Match a number (integer or decimal)
+             */
+            type: Twig.expression.type.number,
+            // match a number
+            regex: /^\-?\d+(\.\d+)?/,
+            next: Twig.expression.set.operations,
+            compile: function(token, stack, output) {
+                token.value = Number(token.value);
+                output.push(token);
+            },
+            parse: Twig.expression.fn.parse.push_value
+        },
+        {
             type: Twig.expression.type.operator.binary,
-            // Match any of +, *, /, -, %, ~, <, <=, >, >=, !=, ==, **, ?, :, and, or, not
-            regex: /(^[\+\-~%\?\:]|^[!=]==?|^[!<>]=?|^\*\*?|^\/\/?|^and\s+|^or\s+|^in\s+|^not in\s+|^\.\.)/,
+            // Match any of ?:, +, *, /, -, %, ~, <, <=, >, >=, !=, ==, **, ?, :, and, or, in, not in
+            // and, or, in, not in can be followed by a space or parenthesis
+            regex: /(^\?\:|^[\+\-~%\?]|^[\:](?!\d\])|^[!=]==?|^[!<>]=?|^\*\*?|^\/\/?|^(and)[\(|\s+]|^(or)[\(|\s+]|^(in)[\(|\s+]|^(not in)[\(|\s+]|^\.\.)/,
             next: Twig.expression.set.expressions.concat([Twig.expression.type.operator.unary]),
+            transform: function(match, tokens) {
+                switch(match[0]) {
+                    case 'and(':
+                    case 'or(':
+                    case 'in(':
+                    case 'not in(':
+                        //Strip off the ( if it exists
+                        tokens[tokens.length - 1].value = match[2];
+                        return match[0];
+                        break;
+                    default:
+                        return '';
+                }
+            },
             compile: function(token, stack, output) {
                 delete token.match;
 
@@ -213,10 +247,15 @@ var Twig = (function (Twig) {
                         var key_token = output.pop();
 
                         if (key_token.type === Twig.expression.type.string ||
-                                key_token.type === Twig.expression.type.variable ||
-                                key_token.type === Twig.expression.type.number) {
+                                key_token.type === Twig.expression.type.variable) {
                             token.key = key_token.value;
-
+                        } else if (key_token.type === Twig.expression.type.number) {
+                            // Convert integer keys into string keys
+                            token.key = key_token.value.toString();
+                        } else if (key_token.expression &&
+                            (key_token.type === Twig.expression.type.parameter.end ||
+                            key_token.type == Twig.expression.type.subexpression.end)) {
+                            token.params = key_token.params;
                         } else {
                             throw new Twig.Error("Unexpected value before ':' of " + key_token.type + " = " + key_token.value);
                         }
@@ -232,6 +271,15 @@ var Twig = (function (Twig) {
                 if (token.key) {
                     // handle ternary ':' operator
                     stack.push(token);
+                } else if (token.params) {
+                    // handle "{(expression):value}"
+                    token.key = Twig.expression.parse.apply(this, [token.params, context]);
+                    stack.push(token);
+
+                    //If we're in a loop, we might need token.params later, especially in this form of "(expression):value"
+                    if (!context.loop) {
+                        delete(token.params);
+                    }
                 } else {
                     Twig.expression.operator.parse(token.value, stack);
                 }
@@ -277,8 +325,8 @@ var Twig = (function (Twig) {
              */
             type: Twig.expression.type.string,
             // See: http://blog.stevenlevithan.com/archives/match-quoted-string
-            regex: /^(["'])(?:(?=(\\?))\2.)*?\1/,
-            next: Twig.expression.set.operations,
+            regex: /^(["'])(?:(?=(\\?))\2[\s\S])*?\1/,
+            next: Twig.expression.set.operations_extended,
             compile: function(token, stack, output) {
                 var value = token.value;
                 delete token.match
@@ -297,11 +345,135 @@ var Twig = (function (Twig) {
         },
         {
             /**
+             * Match a subexpression set start.
+             */
+            type: Twig.expression.type.subexpression.start,
+            regex: /^\(/,
+            next: Twig.expression.set.expressions.concat([Twig.expression.type.subexpression.end]),
+            compile: function(token, stack, output) {
+                token.value = '(';
+                output.push(token);
+                stack.push(token);
+            },
+            parse: Twig.expression.fn.parse.push
+        },
+        {
+            /**
+             * Match a subexpression set end.
+             */
+            type: Twig.expression.type.subexpression.end,
+            regex: /^\)/,
+            next: Twig.expression.set.operations_extended,
+            validate: function(match, tokens) {
+                // Iterate back through previous tokens to ensure we follow a subexpression start
+                var i = tokens.length - 1,
+                    found_subexpression_start = false,
+                    next_subexpression_start_invalid = false,
+                    unclosed_parameter_count = 0;
+
+                while(!found_subexpression_start && i >= 0) {
+                    var token = tokens[i];
+
+                    found_subexpression_start = token.type === Twig.expression.type.subexpression.start;
+
+                    // If we have previously found a subexpression end, then this subexpression start is the start of
+                    // that subexpression, not the subexpression we are searching for
+                    if (found_subexpression_start && next_subexpression_start_invalid) {
+                        next_subexpression_start_invalid = false;
+                        found_subexpression_start = false;
+                    }
+
+                    // Count parameter tokens to ensure we dont return truthy for a parameter opener
+                    if (token.type === Twig.expression.type.parameter.start) {
+                        unclosed_parameter_count++;
+                    } else if (token.type === Twig.expression.type.parameter.end) {
+                        unclosed_parameter_count--;
+                    } else if (token.type === Twig.expression.type.subexpression.end) {
+                        next_subexpression_start_invalid = true;
+                    }
+
+                    i--;
+                }
+
+                // If we found unclosed parameters, return false
+                // If we didnt find subexpression start, return false
+                // Otherwise return true
+
+                return (found_subexpression_start && (unclosed_parameter_count === 0));
+            },
+            compile: function(token, stack, output) {
+                // This is basically a copy of parameter end compilation
+                var stack_token,
+                    end_token = token;
+
+                stack_token = stack.pop();
+                while(stack.length > 0 && stack_token.type != Twig.expression.type.subexpression.start) {
+                    output.push(stack_token);
+                    stack_token = stack.pop();
+                }
+
+                // Move contents of parens into preceding filter
+                var param_stack = [];
+                while(token.type !== Twig.expression.type.subexpression.start) {
+                    // Add token to arguments stack
+                    param_stack.unshift(token);
+                    token = output.pop();
+                }
+
+                param_stack.unshift(token);
+
+                var is_expression = false;
+
+                //If the token at the top of the *stack* is a function token, pop it onto the output queue.
+                // Get the token preceding the parameters
+                stack_token = stack[stack.length-1];
+
+                if (stack_token === undefined ||
+                    (stack_token.type !== Twig.expression.type._function &&
+                    stack_token.type !== Twig.expression.type.filter &&
+                    stack_token.type !== Twig.expression.type.test &&
+                    stack_token.type !== Twig.expression.type.key.brackets)) {
+
+                    end_token.expression = true;
+
+                    // remove start and end token from stack
+                    param_stack.pop();
+                    param_stack.shift();
+
+                    end_token.params = param_stack;
+
+                    output.push(end_token);
+                } else {
+                    // This should never be hit
+                    end_token.expression = false;
+                    stack_token.params = param_stack;
+                }
+            },
+            parse: function(token, stack, context) {
+                var new_array = [],
+                    array_ended = false,
+                    value = null;
+
+                if (token.expression) {
+                    value = Twig.expression.parse.apply(this, [token.params, context]);
+                    stack.push(value);
+                } else {
+                    throw new Twig.Error("Unexpected subexpression end when token is not marked as an expression");
+                }
+            }
+        },
+        {
+            /**
              * Match a parameter set start.
              */
             type: Twig.expression.type.parameter.start,
             regex: /^\(/,
             next: Twig.expression.set.expressions.concat([Twig.expression.type.parameter.end]),
+            validate: function(match, tokens) {
+                var last_token = tokens[tokens.length - 1];
+                // We can't use the regex to test if we follow a space because expression is trimmed
+                return last_token && (Twig.indexOf(Twig.expression.reservedWords, last_token.value.trim()) < 0);
+            },
             compile: Twig.expression.fn.compile.push_both,
             parse: Twig.expression.fn.parse.push
         },
@@ -340,8 +512,7 @@ var Twig = (function (Twig) {
                     (token.type !== Twig.expression.type._function &&
                     token.type !== Twig.expression.type.filter &&
                     token.type !== Twig.expression.type.test &&
-                    token.type !== Twig.expression.type.key.brackets &&
-                    token.type !== Twig.expression.type.key.period)) {
+                    token.type !== Twig.expression.type.key.brackets)) {
 
                     end_token.expression = true;
 
@@ -385,6 +556,35 @@ var Twig = (function (Twig) {
 
                     stack.push(new_array);
                 }
+            }
+        },
+        {
+            type: Twig.expression.type.slice,
+            regex: /^\[(\d*\:\d*)\]/,
+            next: Twig.expression.set.operations_extended,
+            compile: function(token, stack, output) {
+                var sliceRange = token.match[1].split(':');
+
+                //sliceStart can be undefined when we pass parameters to the slice filter later
+                var sliceStart = (sliceRange[0]) ? parseInt(sliceRange[0]) : undefined;
+                var sliceEnd = (sliceRange[1]) ? parseInt(sliceRange[1]) : undefined;
+
+                token.value = 'slice';
+                token.params = [sliceStart, sliceEnd];
+
+                //sliceEnd can't be undefined as the slice filter doesn't check for this, but it does check the length
+                //of the params array, so just shorten it.
+                if (!sliceEnd) {
+                    token.params = [sliceStart];
+                }
+
+                output.push(token);
+            },
+            parse: function(token, stack, context) {
+                var input = stack.pop(),
+                    params = token.params;
+
+                stack.push(Twig.filter.apply(this, [token.value, input, params]));
             }
         },
         {
@@ -546,6 +746,10 @@ var Twig = (function (Twig) {
             // match any letter or _, then any number of letters, numbers, _ or - followed by (
             regex: /^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/,
             next: Twig.expression.type.parameter.start,
+            validate: function(match, tokens) {
+                // Make sure this function is not a reserved word
+                return match[1] && (Twig.indexOf(Twig.expression.reservedWords, match[1]) < 0);
+            },
             transform: function(match, tokens) {
                 return '(';
             },
@@ -599,7 +803,7 @@ var Twig = (function (Twig) {
             },
             parse: function(token, stack, context) {
                 // Get the variable from the context
-                var value = Twig.expression.resolve(context[token.value], context);
+                var value = Twig.expression.resolve.apply(this, [context[token.value], context]);
                 stack.push(value);
             }
         },
@@ -615,7 +819,7 @@ var Twig = (function (Twig) {
 
                 output.push(token);
             },
-            parse: function(token, stack, context) {
+            parse: function(token, stack, context, next_token) {
                 var params = token.params && Twig.expression.parse.apply(this, [token.params, context]),
                     key = token.key,
                     object = stack.pop(),
@@ -625,28 +829,32 @@ var Twig = (function (Twig) {
                     if (this.options.strict_variables) {
                         throw new Twig.Error("Can't access a key " + key + " on an null or undefined object.");
                     } else {
-                        return null;
+                        value = undefined;
+                    }
+                } else {
+                    var capitalize = function (value) {
+                        return value.substr(0, 1).toUpperCase() + value.substr(1);
+                    };
+
+                    // Get the variable from the context
+                    if (typeof object === 'object' && key in object) {
+                        value = object[key];
+                    } else if (object["get" + capitalize(key)] !== undefined) {
+                        value = object["get" + capitalize(key)];
+                    } else if (object["is" + capitalize(key)] !== undefined) {
+                        value = object["is" + capitalize(key)];
+                    } else {
+                        value = undefined;
                     }
                 }
 
-                var capitalize = function(value) {return value.substr(0, 1).toUpperCase() + value.substr(1);};
-
-                // Get the variable from the context
-                if (typeof object === 'object' && key in object) {
-                    value = object[key];
-                } else if (object["get"+capitalize(key)] !== undefined) {
-                    value = object["get"+capitalize(key)];
-                } else if (object["is"+capitalize(key)] !== undefined) {
-                    value = object["is"+capitalize(key)];
-                } else {
-                    value = null;
-                }
-                stack.push(Twig.expression.resolve(value, object, params));
+                // When resolving an expression we need to pass next_token in case the expression is a function
+                stack.push(Twig.expression.resolve.apply(this, [value, context, params, next_token]));
             }
         },
         {
             type: Twig.expression.type.key.brackets,
-            regex: /^\[([^\]]*)\]/,
+            regex: /^\[([^\]\:]*)\]/,
             next: Twig.expression.set.operations_extended.concat([
                     Twig.expression.type.parameter.start]),
             compile: function(token, stack, output) {
@@ -661,7 +869,7 @@ var Twig = (function (Twig) {
 
                 output.push(token);
             },
-            parse: function(token, stack, context) {
+            parse: function(token, stack, context, next_token) {
                 // Evaluate key
                 var params = token.params && Twig.expression.parse.apply(this, [token.params, context]),
                     key = Twig.expression.parse.apply(this, [token.stack, context]),
@@ -682,7 +890,9 @@ var Twig = (function (Twig) {
                 } else {
                     value = null;
                 }
-                stack.push(Twig.expression.resolve(value, object, params));
+
+                // When resolving an expression we need to pass next_token in case the expression is a function
+                stack.push(Twig.expression.resolve.apply(this, [value, object, params, next_token]));
             }
         },
         {
@@ -691,7 +901,7 @@ var Twig = (function (Twig) {
              */
             type: Twig.expression.type._null,
             // match a number
-            regex: /^null/,
+            regex: /^(null|NULL|none|NONE)/,
             next: Twig.expression.set.operations,
             compile: function(token, stack, output) {
                 delete token.match;
@@ -715,27 +925,13 @@ var Twig = (function (Twig) {
         },
         {
             /**
-             * Match a number (integer or decimal)
-             */
-            type: Twig.expression.type.number,
-            // match a number
-            regex: /^\-?\d+(\.\d+)?/,
-            next: Twig.expression.set.operations,
-            compile: function(token, stack, output) {
-                token.value = Number(token.value);
-                output.push(token);
-            },
-            parse: Twig.expression.fn.parse.push_value
-        },
-        {
-            /**
              * Match a boolean
              */
             type: Twig.expression.type.bool,
-            regex: /^(true|false)/,
+            regex: /^(true|TRUE|false|FALSE)/,
             next: Twig.expression.set.operations,
             compile: function(token, stack, output) {
-                token.value = (token.match[0] == "true");
+                token.value = (token.match[0].toLowerCase( ) === "true");
                 delete token.match;
                 output.push(token);
             },
@@ -751,8 +947,26 @@ var Twig = (function (Twig) {
      * @param {string} key The context object key.
      * @param {Object} context The render context.
      */
-    Twig.expression.resolve = function(value, context, params) {
+    Twig.expression.resolve = function(value, context, params, next_token) {
         if (typeof value == 'function') {
+            /*
+            If value is a function, it will have been impossible during the compile stage to determine that a following
+            set of parentheses were parameters for this function.
+
+            Those parentheses will have therefore been marked as an expression, with their own parameters, which really
+            belong to this function.
+
+            Those parameters will also need parsing in case they are actually an expression to pass as parameters.
+             */
+            if (next_token && next_token.type === Twig.expression.type.parameter.end) {
+                //When parsing these parameters, we need to get them all back, not just the last item on the stack.
+                var tokens_are_parameters = true;
+
+                params = next_token.params && Twig.expression.parse.apply(this, [next_token.params, context, tokens_are_parameters]);
+
+                //Clean up the parentheses tokens on the next loop
+                next_token.cleanup = true;
+            }
             return value.apply(context, params || []);
         } else {
             return value;
@@ -879,7 +1093,7 @@ var Twig = (function (Twig) {
                 if (Twig.expression.handler.hasOwnProperty(type)) {
                     token_next = Twig.expression.handler[type].next;
                     regex = Twig.expression.handler[type].regex;
-                    // Twig.log.trace("Checking type ", type, " on ", expression);
+                    Twig.log.trace("Checking type ", type, " on ", expression);
                     if (regex instanceof Array) {
                         regex_array = regex;
                     } else {
@@ -929,7 +1143,7 @@ var Twig = (function (Twig) {
 
         Twig.log.trace("Twig.expression.compile: ", "Compiling ", expression);
 
-        // Push tokens into RPN stack using the Sunting-yard algorithm
+        // Push tokens into RPN stack using the Shunting-yard algorithm
         // See http://en.wikipedia.org/wiki/Shunting_yard_algorithm
 
         while (tokens.length > 0) {
@@ -968,7 +1182,7 @@ var Twig = (function (Twig) {
      *                  can be anything, String, Array, Object, etc... based on
      *                  the given expression.
      */
-    Twig.expression.parse = function (tokens, context) {
+    Twig.expression.parse = function (tokens, context, tokens_are_parameters) {
         var that = this;
 
         // If the token isn't an array, make it one.
@@ -978,13 +1192,49 @@ var Twig = (function (Twig) {
 
         // The output stack
         var stack = [],
-            token_template = null;
+            next_token,
+            token_template = null,
+            loop_token_fixups = [];
 
-        Twig.forEach(tokens, function (token) {
+        Twig.forEach(tokens, function (token, index) {
+            //If the token is marked for cleanup, we don't need to parse it
+            if (token.cleanup) {
+                return;
+            }
+
+            //Determine the token that follows this one so that we can pass it to the parser
+            if (tokens.length > index + 1) {
+                next_token = tokens[index + 1];
+            }
+
             token_template = Twig.expression.handler[token.type];
 
-            token_template.parse && token_template.parse.apply(that, [token, stack, context]);
+            token_template.parse && token_template.parse.apply(that, [token, stack, context, next_token]);
+
+            //Store any binary tokens for later if we are in a loop.
+            if (context.loop && token.type === Twig.expression.type.operator.binary) {
+                loop_token_fixups.push(token);
+            }
         });
+
+        //Check every fixup and remove "key" as long as they still have "params". This covers the use case where
+        //a ":" operator is used in a loop with a "(expression):" statement. We need to be able to evaluate the expression
+        Twig.forEach(loop_token_fixups, function (loop_token_fixup) {
+            if (loop_token_fixup.params && loop_token_fixup.key) {
+                delete loop_token_fixup["key"];
+            }
+        });
+
+        //If parse has been called with a set of tokens that are parameters, we need to return the whole stack,
+        //wrapped in an Array.
+        if (tokens_are_parameters) {
+            var params = [];
+            while (stack.length > 0) {
+                params.unshift(stack.pop());
+            }
+
+            stack.push(params);
+        }
 
         // Pop the final value off the stack
         return stack.pop();
@@ -992,4 +1242,4 @@ var Twig = (function (Twig) {
 
     return Twig;
 
-})( Twig || { } );
+};

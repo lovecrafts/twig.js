@@ -1,12 +1,7 @@
-//     Twig.js
-//     Copyright (c) 2011-2013 John Roepke
-//     Available under the BSD 2-Clause License
-//     https://github.com/justjohn/twig.js
-
 // ## twig.tests.js
 //
 // This file handles expression tests. (is empty, is not defined, etc...)
-var Twig = (function (Twig) {
+module.exports = function (Twig) {
     "use strict";
     Twig.tests = {
         empty: function(value) {
@@ -41,6 +36,9 @@ var Twig = (function (Twig) {
         },
         sameas: function(value, params) {
             return value === params[0];
+        },
+        iterable: function(value) {
+            return value && (Twig.lib.is("Array", value) || Twig.lib.is("Object", value));
         }
         /*
         constant ?
@@ -59,4 +57,4 @@ var Twig = (function (Twig) {
     };
 
     return Twig;
-})( Twig || { } );
+};

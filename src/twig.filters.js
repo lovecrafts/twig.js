@@ -1,12 +1,7 @@
-//     Twig.js
-//     Copyright (c) 2011-2013 John Roepke
-//     Available under the BSD 2-Clause License
-//     https://github.com/justjohn/twig.js
-
 // ## twig.filters.js
 //
 // This file handles parsing filters.
-var Twig = (function (Twig) {
+module.exports = function (Twig) {
 
     // Determine object type
     function is(type, obj) {
@@ -66,7 +61,7 @@ var Twig = (function (Twig) {
                 return value.reverse();
             } else if (is("String", value)) {
                 return value.split("").reverse().join("");
-            } else if (value instanceof Object) {
+            } else if (is("Object", value)) {
                 var keys = value._keys || Object.keys(value).reverse();
                 value._keys = keys;
                 return value;
@@ -75,16 +70,48 @@ var Twig = (function (Twig) {
         sort: function(value) {
             if (is("Array", value)) {
                 return value.sort();
-            } else if (value instanceof Object) {
+            } else if (is('Object', value)) {
                 // Sorting objects isn't obvious since the order of
-                // returned keys isn't guaranteedin JavaScript.
+                // returned keys isn't guaranteed in JavaScript.
                 // Because of this we use a "hidden" key called _keys to
                 // store the keys in the order we want to return them.
 
                 delete value._keys;
                 var keys = Object.keys(value),
                     sorted_keys = keys.sort(function(a, b) {
-                        return value[a] > value[b];
+                        var a1, a2;
+
+                        // if a and b are comparable, we're fine :-)
+                        if((value[a] > value[b]) == !(value[a] <= value[b])) {
+                            return value[a] > value[b] ? 1 :
+			           value[a] < value[b] ? -1 :
+				   0;
+                        }
+                        // if a and b can be parsed as numbers, we can compare
+                        // their numeric value
+                        else if(!isNaN(a1 = parseFloat(value[a])) &&
+                                !isNaN(b1 = parseFloat(value[b]))) {
+                            return a1 > b1 ? 1 :
+			           a1 < b1 ? -1 :
+				   0;
+                        }
+                        // if one of the values is a string, we convert the
+                        // other value to string as well
+                        else if(typeof value[a] == 'string') {
+                            return value[a] > value[b].toString() ? 1 :
+                                   value[a] < value[b].toString() ? -1 :
+				   0;
+                        }
+                        else if(typeof value[b] == 'string') {
+                            return value[a].toString() > value[b] ? 1 :
+                                   value[a].toString() < value[b] ? -1 :
+				   0;
+                        }
+                        // everything failed - return 'null' as sign, that
+                        // the values are not comparable
+                        else {
+                            return null;
+                        }
                     });
                 value._keys = sorted_keys;
                 return value;
@@ -111,7 +138,9 @@ var Twig = (function (Twig) {
                 return;
             }
 
-            return encodeURIComponent(value);
+            var result = encodeURIComponent(value);
+            result = result.replace("'", "%27");
+            return result;
         },
         join: function(value, params) {
             if (value === undefined || value === null){
@@ -125,7 +154,7 @@ var Twig = (function (Twig) {
             if (params && params[0]) {
                 join_str = params[0];
             }
-            if (value instanceof Array) {
+            if (is("Array", value)) {
                 output = value;
             } else {
                 keyset = value._keys || Object.keys(value);
@@ -139,23 +168,45 @@ var Twig = (function (Twig) {
             return output.join(join_str);
         },
         "default": function(value, params) {
-            if (params === undefined || params.length !== 1) {
+            if (params !== undefined && params.length > 1) {
                 throw new Twig.Error("default filter expects one argument");
             }
             if (value === undefined || value === null || value === '' ) {
+                if (params === undefined) {
+                    return '';
+                }
+
                 return params[0];
             } else {
                 return value;
             }
         },
         json_encode: function(value) {
-            if (value && value.hasOwnProperty( "_keys" ) ) {
-                delete value._keys;
-            }
             if(value === undefined || value === null) {
                 return "null";
             }
-            return JSON.stringify(value);
+            else if ((typeof value == 'object') && (is("Array", value))) {
+                output = [];
+
+                Twig.forEach(value, function(v) {
+                    output.push(Twig.filters.json_encode(v));
+                });
+
+                return "[" + output.join(",") + "]";
+            }
+            else if (typeof value == 'object') {
+                var keyset = value._keys || Object.keys(value),
+                output = [];
+
+                Twig.forEach(keyset, function(key) {
+                    output.push(JSON.stringify(key) + ":" + Twig.filters.json_encode(value[key]));
+                });
+
+                return "{" + output.join(",") + "}";
+            }
+            else {
+                return JSON.stringify(value);
+            }
         },
         merge: function(value, params) {
             var obj = [],
@@ -163,21 +214,21 @@ var Twig = (function (Twig) {
                 keyset = [];
 
             // Check to see if all the objects being merged are arrays
-            if (!(value instanceof Array)) {
+            if (!is("Array", value)) {
                 // Create obj as an Object
                 obj = { };
             } else {
                 Twig.forEach(params, function(param) {
-                    if (!(param instanceof Array)) {
+                    if (!is("Array", param)) {
                         obj = { };
                     }
                 });
             }
-            if (!(obj instanceof Array)) {
+            if (!is("Array", obj)) {
                 obj._keys = [];
             }
 
-            if (value instanceof Array) {
+            if (is("Array", value)) {
                 Twig.forEach(value, function(val) {
                     if (obj._keys) obj._keys.push(arr_index);
                     obj[arr_index] = val;
@@ -205,7 +256,7 @@ var Twig = (function (Twig) {
 
             // mixin the merge arrays
             Twig.forEach(params, function(param) {
-                if (param instanceof Array) {
+                if (is("Array", param)) {
                     Twig.forEach(param, function(val) {
                         if (obj._keys) obj._keys.push(arr_index);
                         obj[arr_index] = val;
@@ -231,12 +282,9 @@ var Twig = (function (Twig) {
             return obj;
         },
         date: function(value, params) {
-            if (value === undefined||value === null){
-                return;
-            }
-
             var date = Twig.functions.date(value);
-            return Twig.lib.formatDate(date, params[0]);
+            var format = params && params.length ? params[0] : 'F j, Y H:i';
+            return Twig.lib.date(format, date);
         },
 
         date_modify: function(value, params) {
@@ -293,20 +341,92 @@ var Twig = (function (Twig) {
             return Twig.lib.strip_tags(value);
         },
 
-        escape: function(value) {
+        escape: function(value, params) {
             if (value === undefined|| value === null){
                 return;
             }
-            return value.toString().replace(/&/g, "&amp;")
-                        .replace(/</g, "&lt;")
-                        .replace(/>/g, "&gt;")
-                        .replace(/"/g, "&quot;")
-                        .replace(/'/g, "&#039;");
+
+            var strategy = "html";
+            if(params && params.length && params[0] !== true)
+                strategy = params[0];
+
+            if(strategy == "html") {
+                var raw_value = value.toString().replace(/&/g, "&amp;")
+                            .replace(/</g, "&lt;")
+                            .replace(/>/g, "&gt;")
+                            .replace(/"/g, "&quot;")
+                            .replace(/'/g, "&#039;");
+                return Twig.Markup(raw_value, 'html');
+            } else if(strategy == "js") {
+                var raw_value = value.toString();
+                var result = "";
+
+                for(var i = 0; i < raw_value.length; i++) {
+                    if(raw_value[i].match(/^[a-zA-Z0-9,\._]$/))
+                        result += raw_value[i];
+                    else {
+                        var char_code = raw_value.charCodeAt(i);
+
+                        if(char_code < 0x80)
+                            result += "\\x" + char_code.toString(16).toUpperCase();
+                        else
+                            result += Twig.lib.sprintf("\\u%04s", char_code.toString(16).toUpperCase());
+                    }
+                }
+
+                return Twig.Markup(result, 'js');
+            } else if(strategy == "css") {
+                var raw_value = value.toString();
+                var result = "";
+
+                for(var i = 0; i < raw_value.length; i++) {
+                    if(raw_value[i].match(/^[a-zA-Z0-9]$/))
+                        result += raw_value[i];
+                    else {
+                        var char_code = raw_value.charCodeAt(i);
+                        result += "\\" + char_code.toString(16).toUpperCase() + " ";
+                    }
+                }
+
+                return Twig.Markup(result, 'css');
+            } else if(strategy == "url") {
+                var result = Twig.filters.url_encode(value);
+                return Twig.Markup(result, 'url');
+            } else if(strategy == "html_attr") {
+                var raw_value = value.toString();
+                var result = "";
+
+                for(var i = 0; i < raw_value.length; i++) {
+                    if(raw_value[i].match(/^[a-zA-Z0-9,\.\-_]$/))
+                        result += raw_value[i];
+                    else if(raw_value[i].match(/^[&<>"]$/))
+                        result += raw_value[i].replace(/&/g, "&amp;")
+                                .replace(/</g, "&lt;")
+                                .replace(/>/g, "&gt;")
+                                .replace(/"/g, "&quot;");
+                    else {
+                        var char_code = raw_value.charCodeAt(i);
+
+                        // The following replaces characters undefined in HTML with
+                        // the hex entity for the Unicode replacement character.
+                        if(char_code <= 0x1f && char_code != 0x09 && char_code != 0x0a && char_code != 0x0d)
+                            result += "&#xFFFD;";
+                        else if(char_code < 0x80)
+                            result += Twig.lib.sprintf("&#x%02s;", char_code.toString(16).toUpperCase());
+                        else
+                            result += Twig.lib.sprintf("&#x%04s;", char_code.toString(16).toUpperCase());
+                    }
+                }
+
+                return Twig.Markup(result, 'html_attr');
+            } else {
+                throw new Twig.Error("escape strategy unsupported");
+            }
         },
 
         /* Alias of escape */
-        "e": function(value) {
-            return Twig.filters.escape(value);
+        "e": function(value, params) {
+            return Twig.filters.escape(value, params);
         },
 
         nl2br: function(value) {
@@ -321,7 +441,9 @@ var Twig = (function (Twig) {
                         .replace(/\r/g, br)
                         .replace(/\n/g, br);
 
-            return Twig.lib.replaceAll(value, linebreak_tag, "\n");
+            value = Twig.lib.replaceAll(value, linebreak_tag, "\n");
+
+            return Twig.Markup(value);
         },
 
         /**
@@ -380,6 +502,39 @@ var Twig = (function (Twig) {
             return whitespace.indexOf(str.charAt(0)) === -1 ? str : '';
         },
 
+        truncate: function (value, params) {
+            var length = 30,
+                preserve = false,
+                separator = '...';
+
+            value =  value + '';
+            if (params) {
+                if (params[0]) {
+                    length = params[0];
+                }
+                if (params[1]) {
+                    preserve = params[1];
+                }
+                if (params[2]) {
+                    separator = params[2];
+                }
+            }
+
+            if (value.length > length) {
+
+                if (preserve) {
+                    length = value.indexOf(' ', length);
+                    if (length === -1) {
+                        return value;
+                    }
+                }
+
+                value =  value.substr(0, length) + separator;
+            }
+
+            return value;
+        },
+
         slice: function(value, params) {
             if (value === undefined || value === null) {
                 return;
@@ -417,9 +572,9 @@ var Twig = (function (Twig) {
         },
 
         first: function(value) {
-            if (value instanceof Array) {
+            if (is("Array", value)) {
                 return value[0];
-            } else if (value instanceof Object) {
+            } else if (is("Object", value)) {
                 if ('_keys' in value) {
                     return value[value._keys[0]];
                 }
@@ -505,8 +660,7 @@ var Twig = (function (Twig) {
             return value[value.length - 1];
         },
         raw: function(value) {
-            //Raw filter shim
-            return value;
+            return Twig.Markup(value);
         },
         batch: function(items, params) {
             var size = params.shift(),
@@ -577,4 +731,4 @@ var Twig = (function (Twig) {
 
     return Twig;
 
-})(Twig || { });
+};

@@ -1,12 +1,7 @@
-//     Twig.js
-//     Copyright (c) 2011-2013 John Roepke
-//     Available under the BSD 2-Clause License
-//     https://github.com/justjohn/twig.js
-
 // ## twig.logic.js
 //
 // This file handles tokenizing, compiling and parsing logic tokens. {% ... %}
-var Twig = (function (Twig) {
+module.exports = function (Twig) {
     "use strict";
 
     /**
@@ -29,6 +24,7 @@ var Twig = (function (Twig) {
         endset:    'Twig.logic.type.endset',
         filter:    'Twig.logic.type.filter',
         endfilter: 'Twig.logic.type.endfilter',
+        shortblock: 'Twig.logic.type.shortblock',
         block:     'Twig.logic.type.block',
         endblock:  'Twig.logic.type.endblock',
         extends_:  'Twig.logic.type.extends',
@@ -39,7 +35,9 @@ var Twig = (function (Twig) {
         macro:     'Twig.logic.type.macro',
         endmacro:  'Twig.logic.type.endmacro',
         import_:   'Twig.logic.type.import',
-        from:      'Twig.logic.type.from'
+        from:      'Twig.logic.type.from',
+        embed:     'Twig.logic.type.embed',
+        endembed:  'Twig.logic.type.endembed'
     };
 
 
@@ -72,7 +70,7 @@ var Twig = (function (Twig) {
              *  Format: {% if expression %}
              */
             type: Twig.logic.type.if_,
-            regex: /^if\s+([^\s].+)$/,
+            regex: /^if\s+([\s\S]+)$/,
             next: [
                 Twig.logic.type.else_,
                 Twig.logic.type.elseif,
@@ -241,8 +239,8 @@ var Twig = (function (Twig) {
                 // Parse expression
                 var result = Twig.expression.parse.apply(this, [token.expression, context]),
                     output = [],
-					len,
-					index = 0,
+                    len,
+                    index = 0,
                     keyset,
                     that = this,
                     conditional = token.conditional,
@@ -259,10 +257,12 @@ var Twig = (function (Twig) {
                             parent: context
                         };
                     },
+                    // run once for each iteration of the loop
                     loop = function(key, value) {
-                        var inner_context = Twig.lib.copy(context);
+                        var inner_context = Twig.ChildContext(context);
 
                         inner_context[token.value_var] = value;
+
                         if (token.key_var) {
                             inner_context[token.key_var] = key;
                         }
@@ -276,22 +276,32 @@ var Twig = (function (Twig) {
                             output.push(Twig.parse.apply(that, [token.output, inner_context]));
                             index += 1;
                         }
+
+                        // Delete loop-related variables from the context
+                        delete inner_context['loop'];
+                        delete inner_context[token.value_var];
+                        delete inner_context[token.key_var];
+
+                        // Merge in values that exist in context but have changed
+                        // in inner_context.
+                        Twig.merge(context, inner_context, true);
                     };
 
-                if (result instanceof Array) {
+
+                if (Twig.lib.is('Array', result)) {
                     len = result.length;
                     Twig.forEach(result, function (value) {
                         var key = index;
 
                         loop(key, value);
                     });
-                } else if (result instanceof Object) {
+                } else if (Twig.lib.is('Object', result)) {
                     if (result._keys !== undefined) {
                         keyset = result._keys;
                     } else {
                         keyset = Object.keys(result);
                     }
-					len = keyset.length;
+                    len = keyset.length;
                     Twig.forEach(keyset, function(key) {
                         // Ignore the _keys property, it's internal to twig.js
                         if (key === "_keys") return;
@@ -305,7 +315,7 @@ var Twig = (function (Twig) {
 
                 return {
                     chain: continue_chain,
-                    output: output.join("")
+                    output: Twig.output.apply(this, [output])
                 };
             }
         },
@@ -327,7 +337,7 @@ var Twig = (function (Twig) {
              *  Format: {% set key = expression %}
              */
             type: Twig.logic.type.set,
-            regex: /^set\s+([a-zA-Z0-9_,\s]+)\s*=\s*(.+)$/,
+            regex: /^set\s+([a-zA-Z0-9_,\s]+)\s*=\s*([\s\S]+)$/,
             next: [ ],
             open: true,
             compile: function (token) {
@@ -349,8 +359,14 @@ var Twig = (function (Twig) {
                 var value = Twig.expression.parse.apply(this, [token.expression, context]),
                     key = token.key;
 
-                // set on both the global and local context
-                this.context[key] = value;
+                if (value === context) {
+                    /*  If storing the context in a variable, it needs to be a clone of the current state of context.
+                        Otherwise we have a context with infinite recursion.
+                        Fixes #341
+                     */
+                    value = Twig.lib.copy(value);
+                }
+
                 context[key] = value;
 
                 return {
@@ -471,23 +487,44 @@ var Twig = (function (Twig) {
                 return token;
             },
             parse: function (token, context, chain) {
-                var block_output = "",
-                    output = "",
-                    hasParent = this.blocks[token.block] && this.blocks[token.block].indexOf(Twig.placeholders.parent) > -1;
+                var block_output,
+                    output,
+                    isImported = Twig.indexOf(this.importedBlocks, token.block) > -1,
+                    hasParent = this.blocks[token.block] && Twig.indexOf(this.blocks[token.block], Twig.placeholders.parent) > -1;
 
-                // Don't override previous blocks
+                // Don't override previous blocks unless they're imported with "use"
                 // Loops should be exempted as well.
-                if (this.blocks[token.block] === undefined || hasParent || context.loop) {
-                    block_output = Twig.expression.parse.apply(this, [{
-                        type: Twig.expression.type.string,
-                        value: Twig.parse.apply(this, [token.output, context])
-                    }, context]);
+                if (this.blocks[token.block] === undefined || isImported || hasParent || context.loop || token.overwrite) {
+                    if (token.expression) {
+                        // Short blocks have output as an expression on the open tag (no body)
+                        block_output = Twig.expression.parse.apply(this, [{
+                            type: Twig.expression.type.string,
+                            value: Twig.expression.parse.apply(this, [token.output, context])
+                        }, context]);
+                    } else {
+                        block_output = Twig.expression.parse.apply(this, [{
+                            type: Twig.expression.type.string,
+                            value: Twig.parse.apply(this, [token.output, context])
+                        }, context]);
+                    }
+
+                    if (isImported) {
+                        // once the block is overridden, remove it from the list of imported blocks
+                        this.importedBlocks.splice(this.importedBlocks.indexOf(token.block), 1);
+                    }
 
                     if (hasParent) {
-                        this.blocks[token.block] =  this.blocks[token.block].replace(Twig.placeholders.parent, block_output);
+                        this.blocks[token.block] = Twig.Markup(this.blocks[token.block].replace(Twig.placeholders.parent, block_output));
                     } else {
                         this.blocks[token.block] = block_output;
                     }
+
+                    this.originalBlockTokens[token.block] = {
+                        type: token.type,
+                        block: token.block,
+                        output: token.output,
+                        overwrite: true
+                    };
                 }
 
                 // Check if a child block has been set from a template extending this one.
@@ -501,6 +538,32 @@ var Twig = (function (Twig) {
                     chain: chain,
                     output: output
                 };
+            }
+        },
+        {
+            /**
+             * Block shorthand logic tokens.
+             *
+             *  Format: {% block title expression %}
+             */
+            type: Twig.logic.type.shortblock,
+            regex: /^block\s+([a-zA-Z0-9_]+)\s+(.+)$/,
+            next: [ ],
+            open: true,
+            compile: function (token) {
+                token.expression = token.match[2].trim();
+
+                token.output = Twig.expression.compile({
+                    type: Twig.expression.type.expression,
+                    value: token.expression
+                }).stack;
+
+                token.block = token.match[1].trim();
+                delete token.match;
+                return token;
+            },
+            parse: function (token, context, chain) {
+                return Twig.logic.handler[Twig.logic.type.block].parse.apply(this, arguments);
             }
         },
         {
@@ -536,11 +599,26 @@ var Twig = (function (Twig) {
                 return token;
             },
             parse: function (token, context, chain) {
+                var template,
+                    innerContext = Twig.ChildContext(context);
                 // Resolve filename
                 var file = Twig.expression.parse.apply(this, [token.stack, context]);
 
                 // Set parent template
                 this.extend = file;
+
+                if (file instanceof Twig.Template) {
+                    template = file;
+                } else {
+                    // Import file
+                    template = this.importFile(file);
+                }
+
+                // Render the template in case it puts anything in its context
+                template.render(innerContext);
+
+                // Extend the parent context with the extended context
+                Twig.lib.extend(context, innerContext);
 
                 return {
                     chain: chain,
@@ -552,7 +630,7 @@ var Twig = (function (Twig) {
             /**
              * Block logic tokens.
              *
-             *  Format: {% extends "template.twig" %}
+             *  Format: {% use "template.twig" %}
              */
             type: Twig.logic.type.use,
             regex: /^use\s+(.+)$/,
@@ -589,7 +667,7 @@ var Twig = (function (Twig) {
              *  Format: {% includes "template.twig" [with {some: 'values'} only] %}
              */
             type: Twig.logic.type.include,
-            regex: /^include\s+(ignore missing\s+)?(.+?)\s*(?:with\s+(.+?))?\s*(only)?$/,
+            regex: /^include\s+(ignore missing\s+)?(.+?)\s*(?:with\s+([\S\s]+?))?\s*(only)?$/,
             next: [ ],
             open: true,
             compile: function (token) {
@@ -626,10 +704,7 @@ var Twig = (function (Twig) {
                     template;
 
                 if (!token.only) {
-                    for (i in context) {
-                        if (context.hasOwnProperty(i))
-                            innerContext[i] = context[i];
-                    }
+                    innerContext = Twig.ChildContext(context);
                 }
 
                 if (token.withStack !== undefined) {
@@ -643,8 +718,12 @@ var Twig = (function (Twig) {
 
                 var file = Twig.expression.parse.apply(this, [token.stack, innerContext]);
 
-                // Import file
-                template = this.importFile(file);
+                if (file instanceof Twig.Template) {
+                    template = file;
+                } else {
+                    // Import file
+                    template = this.importFile(file);
+                }
 
                 return {
                     chain: chain,
@@ -691,14 +770,14 @@ var Twig = (function (Twig) {
              *
              */
             type: Twig.logic.type.macro,
-            regex: /^macro\s+([a-zA-Z0-9_]+)\s?\((([a-zA-Z0-9_]+(,\s?)?)*)\)$/,
+            regex: /^macro\s+([a-zA-Z0-9_]+)\s*\(\s*((?:[a-zA-Z0-9_]+(?:,\s*)?)*)\s*\)$/,
             next: [
                 Twig.logic.type.endmacro
             ],
             open: true,
             compile: function (token) {
                 var macroName = token.match[1],
-                    parameters = token.match[2].split(/[ ,]+/);
+                    parameters = token.match[2].split(/[\s,]+/);
 
                 //TODO: Clean up duplicate check
                 for (var i=0; i<parameters.length; i++) {
@@ -781,7 +860,7 @@ var Twig = (function (Twig) {
             parse: function (token, context, chain) {
                 if (token.expression !== "_self") {
                     var file = Twig.expression.parse.apply(this, [token.stack, context]);
-                    var template = this.importMacros(file || token.expression);
+                    var template = this.importFile(file || token.expression);
                     context[token.contextName] = template.render({}, {output: 'macros'});
                 }
                 else {
@@ -844,7 +923,7 @@ var Twig = (function (Twig) {
 
                 if (token.expression !== "_self") {
                     var file = Twig.expression.parse.apply(this, [token.stack, context]);
-                    var template = this.importMacros(file || token.expression);
+                    var template = this.importFile(file || token.expression);
                     macros = template.render({}, {output: 'macros'});
                 }
                 else {
@@ -863,6 +942,99 @@ var Twig = (function (Twig) {
                 }
 
             }
+        },
+        {
+            /**
+             * The embed tag combines the behaviour of include and extends.
+             * It allows you to include another template's contents, just like include does.
+             *
+             *  Format: {% embed "template.twig" [with {some: 'values'} only] %}
+             */
+            type: Twig.logic.type.embed,
+            regex: /^embed\s+(ignore missing\s+)?(.+?)\s*(?:with\s+(.+?))?\s*(only)?$/,
+            next: [
+                Twig.logic.type.endembed
+            ],
+            open: true,
+            compile: function (token) {
+                var match = token.match,
+                    includeMissing = match[1] !== undefined,
+                    expression = match[2].trim(),
+                    withContext = match[3],
+                    only = ((match[4] !== undefined) && match[4].length);
+
+                delete token.match;
+
+                token.only = only;
+                token.includeMissing = includeMissing;
+
+                token.stack = Twig.expression.compile.apply(this, [{
+                    type:  Twig.expression.type.expression,
+                    value: expression
+                }]).stack;
+
+                if (withContext !== undefined) {
+                    token.withStack = Twig.expression.compile.apply(this, [{
+                        type:  Twig.expression.type.expression,
+                        value: withContext.trim()
+                    }]).stack;
+                }
+
+                return token;
+            },
+            parse: function (token, context, chain) {
+                // Resolve filename
+                var innerContext = {},
+                    withContext,
+                    i,
+                    template;
+
+                if (!token.only) {
+                    for (i in context) {
+                        if (context.hasOwnProperty(i))
+                            innerContext[i] = context[i];
+                    }
+                }
+
+                if (token.withStack !== undefined) {
+                    withContext = Twig.expression.parse.apply(this, [token.withStack, context]);
+
+                    for (i in withContext) {
+                        if (withContext.hasOwnProperty(i))
+                            innerContext[i] = withContext[i];
+                    }
+                }
+
+                var file = Twig.expression.parse.apply(this, [token.stack, innerContext]);
+
+                if (file instanceof Twig.Template) {
+                    template = file;
+                } else {
+                    // Import file
+                    template = this.importFile(file);
+                }
+
+                // reset previous blocks
+                this.blocks = {};
+
+                // parse tokens. output will be not used
+                var output = Twig.parse.apply(this, [token.output, innerContext]);
+
+                // render tempalte with blocks defined in embed block
+                return {
+                    chain: chain,
+                    output: template.render(innerContext, {'blocks':this.blocks})
+                };
+            }
+        },
+        /* Add the {% endembed %} token
+         *
+         */
+        {
+            type: Twig.logic.type.endembed,
+            regex: /^endembed$/,
+            next: [ ],
+            open: false
         }
 
     ];
@@ -904,10 +1076,6 @@ var Twig = (function (Twig) {
 
         if (!definition.type) {
             throw new Twig.Error("Unable to extend logic definition. No type provided for " + definition);
-        }
-        if (Twig.logic.type[definition.type]) {
-            throw new Twig.Error("Unable to extend logic definitions. Type " +
-                                 definition.type + " is already defined.");
         } else {
             Twig.logic.extendType(definition.type);
         }
@@ -1031,4 +1199,4 @@ var Twig = (function (Twig) {
 
     return Twig;
 
-})(Twig || { });
+};

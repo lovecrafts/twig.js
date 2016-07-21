@@ -70,6 +70,34 @@ describe("Twig.js Blocks ->", function() {
         });
     });
 
+    it("should allow overriding of included blocks", function(done) {
+        // Test overriding of included blocks
+        twig({
+            id:   'use-override-block',
+            path: 'test/templates/use-override-block.twig',
+
+            load: function(template) {
+                // Load the template
+                template.render({ place: "diner" }).should.equal("Sorry, can't come to a diner today." );
+                done();
+            }
+        });
+    });
+
+    it("should allow overriding of included nested blocks", function(done) {
+        // Test overriding of included blocks
+        twig({
+            id:   'use-override-nested-block',
+            path: 'test/templates/use-override-nested-block.twig',
+
+            load: function(template) {
+                // Load the template
+                template.render().should.equal("parent:new-child1:new-child2");
+                done();
+            }
+        });
+    });
+
     it("should make the contents of blocks available after they're rendered", function(done) {
         // Test rendering and loading one block
         twig({
@@ -183,5 +211,30 @@ describe("Twig.js Blocks ->", function() {
             })
         });
 
+        it("should respect changes of the context made before calling the function", function() {
+            twig({
+                data: '{% set foo = "original" %}{% block test %}{{ foo }}{% endblock %} {% set foo = "changed" %}{{ block("test") }}'
+            }).render()
+            .should.equal("original changed");
+        });
+
+    });
+
+    describe("block shorthand ->", function() {
+        it("should render block content using shorthand syntax", function() {
+            twig({
+                data: '{% set prefix = "shorthand" %}{% block title (prefix ~ " - " ~ block_value)|title %}'
+            })
+            .render({block_value: 'test succeeded'})
+            .should.equal('Shorthand - Test Succeeded');
+        });
+        it("should overload blocks from an extended template using shorthand syntax", function() {
+            twig({
+                allowInlineIncludes: true,
+                data: '{% extends "child-extends" %}{% block title "New Title" %}{% block body "new body uses the " ~ base ~ " template" %}'
+            })
+            .render({ base: "template.twig" })
+            .should.equal( "New Title - new body uses the template.twig template" );
+        });
     });
 });

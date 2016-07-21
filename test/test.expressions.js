@@ -67,12 +67,12 @@ describe("Twig.js Expressions ->", function() {
             });
         });
 
-        it("should divide numbers and return an int result", function() {
+        it("should divide numbers and return a floored result", function() {
             var test_template = twig({data: '{{ a // b }}'});
             numeric_test_data.forEach(function(pair) {
                 var output = test_template.render(pair);
                 // Get expected truncated result
-                var c = parseInt(pair.a/pair.b);
+                var c = Math.floor(pair.a/pair.b);
 
                 output.should.equal(c.toString() );
             });
@@ -109,6 +109,13 @@ describe("Twig.js Expressions ->", function() {
                 output.should.equal(pair.a.toString() + pair.b.toString());
             });
         });
+        it("should concatenate null and undefined values and not throw an exception", function() {
+            twig({data: '{{ a ~ b }}'}).render().should.equal("");
+            twig({data: '{{ a ~ b }}'}).render({
+                a: null,
+                b: null
+            }).should.equal("");
+        });
         it("should handle multiple chained operations", function() {
             var data = {a: 4.5, b: 10, c: 12,  d: -0.25, e:0, f: 65,  g: 21, h: -0.0002};
             var test_template = twig({data: '{{a/b+c*d-e+f/g*h}}'});
@@ -122,6 +129,32 @@ describe("Twig.js Expressions ->", function() {
             var output = test_template.render(data);
             var expected = data.a / (data.b + data.c) * data.d - (data.e + data.f) / (data.g * data.h);
             output.should.equal(expected.toString());
+        });
+
+        it("should handle positive numbers", function() {
+            var test_template = twig({data: '{{ 100 }}'});
+            var output = test_template.render();
+            output.should.equal("100");
+        });
+
+        it("should handle negative numbers", function() {
+            var test_template = twig({data: '{{ -100 }}'});
+            var output = test_template.render();
+            output.should.equal("-100");
+        });
+
+        it("should allow expressions after period accessors", function() {
+            var test_template,
+                output;
+
+            test_template = twig({data: '{{ app.id and (true) }}'});
+            output = test_template.render({ app: { id: 1 } });
+            output.should.equal("true");
+
+            //Check that parenless data works as well
+            test_template = twig({data: '{{ app.id and true }}'});
+            output = test_template.render({ app: { id: 1 } });
+            output.should.equal("true");
         });
     });
 
@@ -209,6 +242,17 @@ describe("Twig.js Expressions ->", function() {
             test_template.render({a:false}).should.equal(true.toString());
             test_template.render({a:true}).should.equal(false.toString());
         });
+
+        it("should correctly cast arrays", function () {
+            var test_template = twig({data: '{{ a == true }}'});
+            test_template.render({a:['value']}).should.equal('true');
+            test_template.render({a:[]}).should.equal('false');
+        });
+
+        it("should correctly cast arrays in control structures", function () {
+            var test_template = twig({data: '{% if a is defined and a %}true{% else %}false{% endif %}'});
+            test_template.render({a:['value']}).should.equal('true');
+        });
     });
 
     describe("Other Operators ->", function() {
@@ -232,7 +276,7 @@ describe("Twig.js Expressions ->", function() {
 
             output2.should.equal( "1" );
         });
-
+        
         it("should support in/containment functionality for arrays", function() {
             var test_template = twig({data: '{{ "a" in ["a", "b", "c"] }}'});
             test_template.render().should.equal(true.toString());
@@ -280,6 +324,84 @@ describe("Twig.js Expressions ->", function() {
 
             var test_template = twig({data: '{{ "d" not in {"key_a" : "no"} }}'});
             test_template.render().should.equal(true.toString());
+        });
+
+        it("should support undefined and null for the in operator", function() {
+            var test_template = twig({data: '{{ 0 in undefined }} {{ 0 in null }}'});
+            test_template.render().should.equal(' ');
+        });
+
+        it("should support expressions as object keys", function() {
+            var test_template;
+            test_template = twig({data: '{% set a = {(foo): "value"} %}{{ a.bar }}'});
+            test_template.render({foo: 'bar'}).should.equal('value');
+
+            test_template = twig({data: '{{ {(foo): "value"}.bar }}'});
+            test_template.render({foo: 'bar'}).should.equal('value');
+        });
+
+        it("should not corrupt the stack when accessing a property of an undefined object", function() {
+            var test_template = twig({data: '{% if true and somethingUndefined.property is not defined %}ok{% endif %}'});
+            var output = test_template.render({});
+            output.should.equal('ok');
+        });
+
+        it('should support keys as expressions', function() {
+            var test_template = twig({data: '{% for val in arr %}{{{(val.value):null}|json_encode}}{% endfor %}'});
+            var output = test_template.render({'arr': [{'value': 'one'}, {'value': 'two'}]});
+            output.should.equal('{"one":null}{"two":null}');
+        });
+
+        it('should support slice shorthand (full form)', function() {
+            var test_template = twig({data: '{{ "12345"[1:2] }}'});
+            var output = test_template.render();
+            output.should.equal('23');
+        });
+
+        it('should support slice shorthand (omit first)', function() {
+            var test_template = twig({data: '{{ "12345"[:2] }}'});
+            var output = test_template.render();
+            output.should.equal('12');
+        });
+
+        it('should support slice shorthand (omit last)', function() {
+            var test_template = twig({data: '{{ "12345"[2:] }}'});
+            var output = test_template.render();
+            output.should.equal('345');
+        });
+
+        it('should support slice shorthand for arrays (full form)', function() {
+            var test_template = twig({data: "{{ [1, 2, 3, 4, 5][1:2] }}" });
+            var output = test_template.render();
+            output.should.equal('2,3');
+        });
+
+        it('should support slice shorthand for arrays (omit first)', function() {
+            var test_template = twig({data: "{{ [1, 2, 3, 4, 5][:2] }}" });
+            var output = test_template.render();
+            output.should.equal('1,2');
+        });
+
+        it('should support slice shorthand for arrays (omit last)', function() {
+            var test_template = twig({data: "{{ [1, 2, 3, 4, 5][2:] }}" });
+            var output = test_template.render();
+            output.should.equal('3,4,5');
+        });
+
+        it('should support parenthesised expressions after test', function() {
+            var test_template = twig({data: "{% if true is defined and (true) %}ok!{% endif %}" });
+            var output = test_template.render();
+            output.should.equal('ok!');
+        });
+
+        it('should support keys as expressions in function parameters', function() {
+            var test_template = twig({data: "{{ func({(foo): 'stuff'}) }}"});
+            var output = test_template.render({
+                func: function () { return "ok!"; },
+                foo: "bar"
+            });
+
+            output.should.equal('ok!');
         });
     });
 });

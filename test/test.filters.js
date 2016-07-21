@@ -12,6 +12,11 @@ describe("Twig.js Filters ->", function() {
             var test_template = twig({data: '{{ undef|url_encode() }}' });
             test_template.render().should.equal("" );
         });
+        it("should handle special characters", function() {
+            var data = { "foo": "<foo> \\&\"'.,-_?/Ķä€台北[]{}\t\r\n\b\x80" };
+            var test_template = twig({data: '{{ foo|url_encode() }}' });
+            test_template.render(data).should.equal("%3Cfoo%3E%20%5C%26%22%27.%2C-_%3F%2F%C4%B6%C3%A4%E2%82%AC%E5%8F%B0%E5%8C%97%5B%5D%7B%7D%09%0D%0A%08%C2%80" );
+        });
     });
     describe("json_encode ->", function() {
         it("should encode strings to json", function() {
@@ -29,6 +34,12 @@ describe("Twig.js Filters ->", function() {
         it("should encode objects to json", function() {
             var test_template = twig({data: '{{ {"a":[1,"b",3]}|json_encode }}' });
             test_template.render().should.equal('{"a":[1,"b",3]}' );
+        });
+        it("should retain key order in an object", function() {
+            twig({data: '{{ { "foo": 1, "bar": 2, "baz": 3 }|json_encode }}'}).render().should.equal( '{"foo":1,"bar":2,"baz":3}' );
+        });
+        it("should not add additional information to objects", function() {
+            twig({data: '{{ { "foo": 1, "bar": [1, 2, 3], "baz": { "a": "a", "b": "b" } }|json_encode }}'}).render().should.equal( '{"foo":1,"bar":[1,2,3],"baz":{"a":"a","b":"b"}}' );
         });
         it("should handle undefined", function() {
             var test_template = twig({data: '{{ undef|json_encode }}' });
@@ -121,6 +132,9 @@ describe("Twig.js Filters ->", function() {
             test_template.render().should.equal("c:1 t:2 d:5 e:7 " );
 
             test_template = twig({data: "{% set obj = {'m':'test','z':'abc','a':2,'y':7} %}{% for key,value in obj|sort %}{{key}}:{{value}} {%endfor %}" });
+            test_template.render().should.equal("a:2 y:7 z:abc m:test " );
+
+            test_template = twig({data: "{% set obj = {'z':'abc','a':2,'y':7,'m':'test'} %}{% for key,value in obj|sort %}{{key}}:{{value}} {%endfor %}" });
             test_template.render().should.equal("a:2 y:7 z:abc m:test " );
         });
 
@@ -218,6 +232,19 @@ describe("Twig.js Filters ->", function() {
             test_template = twig({data: '{{ var.key|default("Empty Key") }}' });
             test_template.render({'var':{}}).should.equal("Empty Key" );
         });
+
+        it("should provide a default value of '' if no parameters are passed and a default key is not defined", function () {
+            var test_template = twig({data: '{{ var|default }}' });
+            test_template.render().should.equal("");
+        });
+
+        it("should provide a default value of '' if no parameters are passed and a value is empty", function () {
+            var test_template = twig({data: '{{ ""|default }}' });
+            test_template.render().should.equal("");
+
+            test_template = twig({data: '{{ var.key|default }}' });
+            test_template.render({'var':{}}).should.equal("");
+        });
     });
 
     describe("date ->", function() {
@@ -234,6 +261,12 @@ describe("Twig.js Filters ->", function() {
 
             template.render().should.equal( stringDate(date) );
         });
+        it("should recognize timestamps, when they are passed as string", function() {
+            var template = twig({data: '{{ "27571323556"|date("d/m/Y @ H:i:s") }}'})
+                , date = new Date(27571323556000); // 13/09/2843 @ 08:59:16 EST
+
+            template.render().should.equal( stringDate(date) );
+        });
         it("should recognize string date formats", function() {
             var template = twig({data: '{{ "Tue Aug 14 08:52:15 +0000 2007"|date("d/m/Y @ H:i:s") }}'})
                 , date = new Date(1187081535000); // 14/08/2007 @ 04:52:15 EST
@@ -243,7 +276,19 @@ describe("Twig.js Filters ->", function() {
 
         it("should handle undefined", function() {
             var test_template = twig({data: '{{ undef|date("d/m/Y @ H:i:s") }}' });
-            test_template.render().should.equal( "" );
+            var date = new Date();
+            test_template.render().should.equal(stringDate(date));
+        });
+
+        it("should handle empty strings", function() {
+            var test_template = twig({data: '{{ ""|date("d/m/Y @ H:i:s") }}' });
+            var date = new Date();
+            test_template.render().should.equal(stringDate(date));
+        });
+
+        it("should work with no parameters", function() {
+            var test_template = twig({data: '{{ 27571323556|date }}' });
+            test_template.render().should.equal(twig({data: '{{ 27571323556|date("F j, Y H:i") }}'}).render());
         });
     });
 
@@ -269,6 +314,36 @@ describe("Twig.js Filters ->", function() {
             var test_template = twig({data: '{{ undef|format }}' });
             test_template.render().should.equal("" );
         });
+
+        it("should handle positive leading sign without padding", function() {
+            var template = twig({data: '{{ "I like positive numbers like %+d."|format(123) }}'});
+            template.render({foo: "foo"}).should.equal("I like positive numbers like +123." );
+        });
+
+        it("should handle negative leading sign without padding", function() {
+            var template = twig({data: '{{ "I like negative numbers like %+d."|format(-123) }}'});
+            template.render({foo: "foo"}).should.equal("I like negative numbers like -123." );
+        });
+
+        it("should handle positive leading sign with padding zero", function() {
+            var template = twig({data: '{{ "I like positive numbers like %+05d."|format(123) }}'});
+            template.render({foo: "foo"}).should.equal("I like positive numbers like +0123." );
+        });
+
+        it("should handle negative leading sign with padding zero", function() {
+            var template = twig({data: '{{ "I like negative numbers like %+05d."|format(-123) }}'});
+            template.render({foo: "foo"}).should.equal("I like negative numbers like -0123." );
+        });
+
+        it("should handle positive leading sign with padding space", function() {
+            var template = twig({data: '{{ "I like positive numbers like %+5d."|format(123) }}'});
+            template.render({foo: "foo"}).should.equal("I like positive numbers like  +123." );
+        });
+
+        it("should handle negative leading sign with padding space", function() {
+            var template = twig({data: '{{ "I like negative numbers like %+5d."|format(-123) }}'});
+            template.render({foo: "foo"}).should.equal("I like negative numbers like  -123." );
+        });
     });
 
     describe("striptags ->", function() {
@@ -293,6 +368,64 @@ describe("Twig.js Filters ->", function() {
             var test_template = twig({data: '{{ undef|escape }}' });
             test_template.render().should.equal("" );
         });
+
+        it("should not escape twice if autoescape is on", function() {
+            twig({
+                autoescape: true,
+                data: '{{ value|escape }}'
+            }).render({
+                value: "<test>&</test>"
+            }).should.equal('&lt;test&gt;&amp;&lt;/test&gt;');
+        });
+
+        it("should handle the strategy parameter", function() {
+            var data = { "foo": "<foo> \\&\"'.,-_?/Ķä€台北[]{}\t\r\n\b\x80" };
+
+            var test_template = twig({data: 'Default: {{ foo|escape }}' });
+            test_template.render(data).should.equal("Default: &lt;foo&gt; \\&amp;&quot;&#039;.,-_?/Ķä€台北[]{}\t\r\n\b\x80" );
+
+            var test_template = twig({data: 'html: {{ foo|escape("html") }}' });
+            test_template.render(data).should.equal("html: &lt;foo&gt; \\&amp;&quot;&#039;.,-_?/Ķä€台北[]{}\t\r\n\b\x80" );
+
+            var test_template = twig({data: 'js: {{ foo|escape("js") }}' });
+            test_template.render(data).should.equal("js: \\x3Cfoo\\x3E\\x20\\x5C\\x26\\x22\\x27.,\\x2D_\\x3F\\x2F\\u0136\\u00E4\\u20AC\\u53F0\\u5317\\x5B\\x5D\\x7B\\x7D\\x9\\xD\\xA\\x8\\u0080" );
+
+            var test_template = twig({data: 'css: {{ foo|escape("css") }}' });
+            test_template.render(data).should.equal("css: \\3C foo\\3E \\20 \\5C \\26 \\22 \\27 \\2E \\2C \\2D \\5F \\3F \\2F \\136 \\E4 \\20AC \\53F0 \\5317 \\5B \\5D \\7B \\7D \\9 \\D \\A \\8 \\80 " );
+
+            var test_template = twig({data: 'url: {{ foo|escape("url") }}' });
+            test_template.render(data).should.equal("url: %3Cfoo%3E%20%5C%26%22%27.%2C-_%3F%2F%C4%B6%C3%A4%E2%82%AC%E5%8F%B0%E5%8C%97%5B%5D%7B%7D%09%0D%0A%08%C2%80" );
+
+            var test_template = twig({data: 'html_attr: {{ foo|escape("html_attr") }}' });
+            test_template.render(data).should.equal("html_attr: &lt;foo&gt;&#x20;&#x5C;&amp;&quot;&#x27;.,-_&#x3F;&#x2F;&#x0136;&#x00E4;&#x20AC;&#x53F0;&#x5317;&#x5B;&#x5D;&#x7B;&#x7D;&#x09;&#x0D;&#x0A;&#xFFFD;&#x0080;" );
+        });
+
+        it("should escape strategy != 'html' if autoescape is on", function() {
+            twig({
+                autoescape: true,
+                data: '{{ value|escape("js") }}'
+            }).render({
+                value: "<test>&</test>"
+            }).should.equal('\\x3Ctest\\x3E\\x26\\x3C\\x2Ftest\\x3E');
+        });
+
+        it("should not escape twice if autoescape is not html", function() {
+            twig({
+                autoescape: 'js',
+                data: '{{ value|escape("js") }}'
+            }).render({
+                value: "<test>&</test>"
+            }).should.equal('\\x3Ctest\\x3E\\x26\\x3C\\x2Ftest\\x3E');
+        });
+
+        it("should escape twice if escape strategy is different from autoescape option", function() {
+            twig({
+                autoescape: 'css',
+                data: '{{ value|escape("js") }}\n{{ value|escape }}'
+            }).render({
+                value: "<test>&</test>"
+            }).should.equal('\\5C x3Ctest\\5C x3E\\5C x26\\5C x3C\\5C x2Ftest\\5C x3E\n\\26 lt\\3B test\\26 gt\\3B \\26 amp\\3B \\26 lt\\3B \\2F test\\26 gt\\3B ');
+        });
     });
 
     describe("e ->", function() {
@@ -304,6 +437,16 @@ describe("Twig.js Filters ->", function() {
         it("should handle undefined", function() {
             var test_template = twig({data: '{{ undef|e }}' });
             test_template.render().should.equal("" );
+        });
+
+        it("should not escape twice if autoescape is on", function() {
+            var template = twig({
+                autoescape: true,
+                data: '{{ value|e }}'
+            });
+            template.render({
+                value: "<test>&</test>"
+            }).should.equal('&lt;test&gt;&amp;&lt;/test&gt;');
         });
     });
 
@@ -318,8 +461,38 @@ describe("Twig.js Filters ->", function() {
             var test_template = twig({data: '{{ undef|nl2br }}' });
             test_template.render().should.equal("" );
         });
+
+        it("should not escape br tags if autoescape is on", function() {
+            twig({
+                autoescape: true,
+                data: '{{ test|nl2br }}'
+            }).render({
+                test: '<test>Line 1\nLine2</test>'
+            }).should.equal("&lt;test&gt;Line 1<br />\nLine2&lt;/test&gt;");
+        });
     });
 
+    describe("truncate ->", function() {
+        it("should truncate string to default size(20) and add default separator", function() {
+            var template = twig({data: '{{ test|truncate }}'});
+            template.render({test: '01234567890123456789012345678901234567890123456789'}).should.equal("012345678901234567890123456789...");
+        });
+
+        it("should truncate string to custom size(10) and add default separator", function() {
+            var template = twig({data: '{{ test|truncate(10) }}'});
+            template.render({test: '01234567890123456789012345678901234567890123456789'}).should.equal("0123456789...");
+        });
+
+        it("should truncate string to custom size(15) with preserve and add default separator", function() {
+            var template = twig({data: '{{ test|truncate(15, true) }}'});
+            template.render({test: '0123456789 0123456789 0123456789 0123456789 0123456789'}).should.equal("0123456789 0123456789...");
+        });
+
+        it("should truncate string to custom size(15) with preserve and add custom(*) separator", function() {
+            var template = twig({data: '{{ test|truncate(15, true, "*") }}'});
+            template.render({test: '0123456789 0123456789 0123456789 0123456789 0123456789'}).should.equal("0123456789 0123456789*");
+        });
+    });
 
     describe("trim ->", function() {
         it("should trim whitespace from strings", function() {
@@ -500,6 +673,28 @@ describe("Twig.js Filters ->", function() {
         it('should return last item in a sorted object', function () {
             var test_template = twig({data: "{{ {'m':1, 'z':5, 'a':3}|sort|last }}" });
             test_template.render().should.equal("5");
+        });
+    });
+
+    describe('raw ->', function () {
+        it('should output the raw value if autoescape is on', function () {
+            var template = twig({
+                autoescape: true,
+                data: '{{ value|raw }}'
+            });
+            template.render({
+                value: "<test>&</test>"
+            }).should.equal('<test>&</test>');
+        });
+
+        it('should output the raw value if autoescape is off', function () {
+            var template = twig({
+                autoescape: false,
+                data: '{{ value|raw }}'
+            });
+            template.render({
+                value: "<test>&</test>"
+            }).should.equal('<test>&</test>');
         });
     });
 

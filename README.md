@@ -1,5 +1,7 @@
-[![Build Status](https://secure.travis-ci.org/justjohn/twig.js.png)](http://travis-ci.org/#!/justjohn/twig.js)
-[![NPM version](https://badge.fury.io/js/twig.png)](http://badge.fury.io/js/twig)
+[![Stories in Ready](https://badge.waffle.io/twigjs/twig.js.png?label=ready&title=Ready)](https://waffle.io/twigjs/twig.js)
+[![Build Status](https://secure.travis-ci.org/twigjs/twig.js.svg)](http://travis-ci.org/#!/twigjs/twig.js)
+[![NPM version](https://badge.fury.io/js/twig.svg)](http://badge.fury.io/js/twig)
+[![Gitter](https://badges.gitter.im/twigjs/twig.js.svg)](https://gitter.im/twigjs/twig.js?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
 
 # About
 
@@ -12,19 +14,17 @@ Twig.js is currently a work in progress and supports a limited subset of the Twi
 
 ### Docs
 
-Documentation is available in the [twig.js wiki](https://github.com/justjohn/twig.js/wiki) on Github.
+Documentation is available in the [twig.js wiki](https://github.com/twigjs/twig.js/wiki) on Github.
 
 ### Feature Support
 
-For a list of supported tags/filters/functions/tests see the [Implementation Notes](https://github.com/justjohn/twig.js/wiki/Implementation-Notes) page on the wiki.
+For a list of supported tags/filters/functions/tests see the [Implementation Notes](https://github.com/twigjs/twig.js/wiki/Implementation-Notes) page on the wiki.
 
-### Contributing
+# Releases
 
-If you have a change you want to make to twig.js, feel free to fork this repository and submit a pull request on Github. The source files are located in src/*.js. twig.js is built by running `make`
+Download the latest twig.js release from github: https://github.com/twigjs/twig.js/releases
 
-For more details on getting setup, see the [contributing page](https://github.com/justjohn/twig.js/wiki/Contributing) on the wiki.
-
-# Browser Usage
+## Browser Usage (bower)
 
 Twig.js can be installed as a bower package with:
 
@@ -43,7 +43,7 @@ console.log(
 // outputs: "The cupcake is a lie."
 ```
 
-# Node Usage
+## Node Usage (npm)
 
 Twig.js can be installed with NPM
 
@@ -85,17 +85,25 @@ app.listen(9999);
 Message of the moment: <b>{{ message }}</b>
 ```
 
-An [Express 2 Example](https://github.com/justjohn/twig.js/wiki/Express-2) is available on the wiki.
+An [Express 2 Example](https://github.com/twigjs/twig.js/wiki/Express-2) is available on the wiki.
 
-# Tests
+# Contributing
 
-The twig.js tests are written in [Mocha][mocha] and can be invoked with `make test`.
+If you have a change you want to make to twig.js, feel free to fork this repository and submit a pull request on Github. The source files are located in src/*.js.
 
-# License
+twig.js is built by running `npm run build`
+
+For more details on getting setup, see the [contributing page](https://github.com/twigjs/twig.js/wiki/Contributing) on the wiki.
+
+## Tests
+
+The twig.js tests are written in [Mocha][mocha] and can be invoked with `npm test`.
+
+## License
 
 Twig.js is available under a [BSD 2-Clause License][bsd-2], see the LICENSE file for more information.
 
-# Acknowledgments
+## Acknowledgments
 
 See the LICENSES.md file for copies of the referenced licenses.
 

@@ -1,13 +1,8 @@
-//     Twig.js
-//     Copyright (c) 2011-2013 John Roepke
-//     Available under the BSD 2-Clause License
-//     https://github.com/justjohn/twig.js
-
 // ## twig.exports.js
 //
 // This file provides extension points and other hooks into the twig functionality.
 
-var Twig = (function (Twig) {
+module.exports = function (Twig) {
     "use strict";
     Twig.exports = {
         VERSION: Twig.VERSION
@@ -25,11 +20,14 @@ var Twig = (function (Twig) {
         var id = params.id,
             options = {
                 strict_variables: params.strict_variables || false,
+                // TODO: turn autoscape on in the next major version
+                autoescape: params.autoescape != null && params.autoescape || false,
                 allowInlineIncludes: params.allowInlineIncludes || false,
-                rethrow: params.rethrow || false
+                rethrow: params.rethrow || false,
+                namespaces: params.namespaces
             };
 
-        if (id) {
+        if (Twig.cache && id) {
             Twig.validateId(id);
         }
 
@@ -41,8 +39,9 @@ var Twig = (function (Twig) {
         }
 
         if (params.data !== undefined) {
-            return new Twig.Template({
+            return Twig.Templates.parsers.twig({
                 data: params.data,
+                path: params.hasOwnProperty('path') ? params.path : undefined,
                 module: params.module,
                 id:   id,
                 options: options
@@ -53,11 +52,28 @@ var Twig = (function (Twig) {
                 throw new Twig.Error("Both ref and id cannot be set on a twig.js template.");
             }
             return Twig.Templates.load(params.ref);
+        
+        } else if (params.method !== undefined) {
+            if (!Twig.Templates.isRegisteredLoader(params.method)) {
+                throw new Twig.Error('Loader for "' + params.method + '" is not defined.');
+            }
+            return Twig.Templates.loadRemote(params.name || params.href || params.path || id || undefined, {
+                id: id,
+                method: params.method,
+                parser: params.parser || 'twig',
+                base: params.base,
+                module: params.module,
+                precompiled: params.precompiled,
+                async: params.async,
+                options: options
+
+            }, params.load, params.error);
 
         } else if (params.href !== undefined) {
             return Twig.Templates.loadRemote(params.href, {
                 id: id,
                 method: 'ajax',
+                parser: params.parser || 'twig',
                 base: params.base,
                 module: params.module,
                 precompiled: params.precompiled,
@@ -70,6 +86,7 @@ var Twig = (function (Twig) {
             return Twig.Templates.loadRemote(params.path, {
                 id: id,
                 method: 'fs',
+                parser: params.parser || 'twig',
                 base: params.base,
                 module: params.module,
                 precompiled: params.precompiled,
@@ -139,32 +156,37 @@ var Twig = (function (Twig) {
      * @param {string} path The location of the template file on disk.
      * @param {Object|Function} The options or callback.
      * @param {Function} fn callback.
+     * 
+     * @throws Twig.Error
      */
-
     Twig.exports.renderFile = function(path, options, fn) {
         // handle callback in options
-        if ('function' == typeof options) {
+        if (typeof options === 'function') {
             fn = options;
             options = {};
         }
 
         options = options || {};
 
+        var settings = options.settings || {};
+
         var params = {
-                path: path,
-                base: options.settings['views'],
-                load: function(template) {
-                    // render and return template
-                    fn(null, template.render(options));
-                }
-            };
+            path: path,
+            base: settings.views,
+            load: function(template) {
+                // render and return template as a simple string, see https://github.com/twigjs/twig.js/pull/348 for more information
+                fn(null, '' + template.render(options));
+            }
+        };
 
         // mixin any options provided to the express app.
-        var view_options = options.settings['twig options'];
+        var view_options = settings['twig options'];
 
         if (view_options) {
-            for (var option in view_options) if (view_options.hasOwnProperty(option)) {
-                params[option] = view_options[option];
+            for (var option in view_options) {
+                if (view_options.hasOwnProperty(option)) {
+                    params[option] = view_options[option];
+                }
             }
         }
 
@@ -183,8 +205,14 @@ var Twig = (function (Twig) {
      */
     Twig.exports.cache = function(cache) {
         Twig.cache = cache;
-    }
+    };
+
+    //We need to export the path module so we can effectively test it
+    Twig.exports.path = Twig.path;
+
+    //Export our filters.
+    //Resolves #307
+    Twig.exports.filters = Twig.filters;
 
     return Twig;
-}) (Twig || { });
-
+};

@@ -1,12 +1,7 @@
-//     Twig.js
-//     Copyright (c) 2011-2013 John Roepke
-//     Available under the BSD 2-Clause License
-//     https://github.com/justjohn/twig.js
-
 // ## twig.expression.operator.js
 //
 // This file handles operator lookups and parsing.
-var Twig = (function (Twig) {
+module.exports = function (Twig) {
     "use strict";
 
     /**
@@ -18,10 +13,11 @@ var Twig = (function (Twig) {
     };
 
     var containment = function(a, b) {
-        if (b.indexOf !== undefined) {
+        if (b === undefined || b === null) {
+            return null;
+        } else if (b.indexOf !== undefined) {
             // String
             return a === b || a !== '' && b.indexOf(a) > -1;
-
         } else {
             var el;
             for (el in b) {
@@ -40,8 +36,6 @@ var Twig = (function (Twig) {
     Twig.expression.operator.lookup = function (operator, token) {
         switch (operator) {
             case "..":
-            case 'not in':
-            case 'in':
                 token.precidence = 20;
                 token.associativity = Twig.expression.operator.leftToRight;
                 break;
@@ -52,6 +46,7 @@ var Twig = (function (Twig) {
                 break;
 
             // Ternary
+            case '?:':
             case '?':
             case ':':
                 token.precidence = 16;
@@ -78,10 +73,11 @@ var Twig = (function (Twig) {
             case '<=':
             case '>':
             case '>=':
+            case 'not in':
+            case 'in':
                 token.precidence = 8;
                 token.associativity = Twig.expression.operator.leftToRight;
                 break;
-
 
             case '~': // String concatination
             case '+':
@@ -105,7 +101,7 @@ var Twig = (function (Twig) {
                 break;
 
             default:
-                throw new Twig.Error(operator + " is an unknown operator.");
+                throw new Twig.Error("Failed to lookup operator: " + operator + " is an unknown operator.");
         }
         token.operator = operator;
         return token;
@@ -119,15 +115,44 @@ var Twig = (function (Twig) {
     Twig.expression.operator.parse = function (operator, stack) {
         Twig.log.trace("Twig.expression.operator.parse: ", "Handling ", operator);
         var a, b, c;
+
+        if (operator === '?') {
+            c = stack.pop();
+        }
+
+        b = stack.pop();
+        a = stack.pop();
+
+        if (operator !== 'in' && operator !== 'not in') {
+            if (a && Array.isArray(a)) {
+                a = a.length;
+            }
+
+            if (b && Array.isArray(b)) {
+                b = b.length;
+            }
+        }
+
         switch (operator) {
             case ':':
                 // Ignore
                 break;
 
+            case '?:':
+                if (a) {
+                    stack.push(a);
+                } else {
+                    stack.push(b);
+                }
+                break;
             case '?':
-                c = stack.pop(); // false expr
-                b = stack.pop(); // true expr
-                a = stack.pop(); // conditional
+                if (a === undefined) {
+                    //An extended ternary.
+                    a = b;
+                    b = c;
+                    c = undefined;
+                }
+
                 if (a) {
                     stack.push(b);
                 } else {
@@ -136,143 +161,113 @@ var Twig = (function (Twig) {
                 break;
 
             case '+':
-                b = parseFloat(stack.pop());
-                a = parseFloat(stack.pop());
+                b = parseFloat(b);
+                a = parseFloat(a);
                 stack.push(a + b);
                 break;
 
             case '-':
-                b = parseFloat(stack.pop());
-                a = parseFloat(stack.pop());
+                b = parseFloat(b);
+                a = parseFloat(a);
                 stack.push(a - b);
                 break;
 
             case '*':
-                b = parseFloat(stack.pop());
-                a = parseFloat(stack.pop());
+                b = parseFloat(b);
+                a = parseFloat(a);
                 stack.push(a * b);
                 break;
 
             case '/':
-                b = parseFloat(stack.pop());
-                a = parseFloat(stack.pop());
+                b = parseFloat(b);
+                a = parseFloat(a);
                 stack.push(a / b);
                 break;
 
             case '//':
-                b = parseFloat(stack.pop());
-                a = parseFloat(stack.pop());
-                stack.push(parseInt(a / b));
+                b = parseFloat(b);
+                a = parseFloat(a);
+                stack.push(Math.floor(a / b));
                 break;
 
             case '%':
-                b = parseFloat(stack.pop());
-                a = parseFloat(stack.pop());
+                b = parseFloat(b);
+                a = parseFloat(a);
                 stack.push(a % b);
                 break;
 
             case '~':
-                b = stack.pop();
-                a = stack.pop();
-                stack.push( (a !== undefined ? a.toString() : "")
-                          + (b !== undefined ? b.toString() : "") );
+                stack.push( (a != null ? a.toString() : "")
+                          + (b != null ? b.toString() : "") );
                 break;
 
             case 'not':
             case '!':
-                stack.push(!stack.pop());
+                stack.push(!b);
                 break;
 
             case '<':
-                b = stack.pop();
-                a = stack.pop();
                 stack.push(a < b);
                 break;
 
             case '<=':
-                b = stack.pop();
-                a = stack.pop();
                 stack.push(a <= b);
                 break;
 
             case '>':
-                b = stack.pop();
-                a = stack.pop();
                 stack.push(a > b);
                 break;
 
             case '>=':
-                b = stack.pop();
-                a = stack.pop();
                 stack.push(a >= b);
                 break;
 
             case '===':
-                b = stack.pop();
-                a = stack.pop();
                 stack.push(a === b);
                 break;
 
             case '==':
-                b = stack.pop();
-                a = stack.pop();
                 stack.push(a == b);
                 break;
 
             case '!==':
-                b = stack.pop();
-                a = stack.pop();
                 stack.push(a !== b);
                 break;
 
             case '!=':
-                b = stack.pop();
-                a = stack.pop();
                 stack.push(a != b);
                 break;
 
             case 'or':
-                b = stack.pop();
-                a = stack.pop();
                 stack.push(a || b);
                 break;
 
             case 'and':
-                b = stack.pop();
-                a = stack.pop();
                 stack.push(a && b);
                 break;
 
             case '**':
-                b = stack.pop();
-                a = stack.pop();
                 stack.push(Math.pow(a, b));
                 break;
 
-
             case 'not in':
-                b = stack.pop();
-                a = stack.pop();
                 stack.push( !containment(a, b) );
                 break;
 
             case 'in':
-                b = stack.pop();
-                a = stack.pop();
                 stack.push( containment(a, b) );
                 break;
 
             case '..':
-                b = stack.pop();
-                a = stack.pop();
                 stack.push( Twig.functions.range(a, b) );
                 break;
 
             default:
-                throw new Twig.Error(operator + " is an unknown operator.");
+                debugger;
+                throw new Twig.Error("Failed to parse operator: " + operator + " is an unknown operator.");
         }
     };
 
     return Twig;
 
-})( Twig || { } );
+};
