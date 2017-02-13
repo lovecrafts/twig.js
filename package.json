@@ -24,7 +24,7 @@
   },
   "dependencies": {
     "walk": "2.3.x",
-    "minimatch": "0.2.x"
+    "minimatch": "~3.0.3"
   },
   "devDependencies": {
     "tokenizer": "1.1.x",
